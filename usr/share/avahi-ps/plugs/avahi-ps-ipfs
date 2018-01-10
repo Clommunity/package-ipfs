@@ -1,0 +1,315 @@
+#!/bin/bash
+#
+# Faltar editar-lo
+# SERF, els tags només poden tenir un buffer de 512 bytes.
+SERFBIN="/opt/serf/serf"
+SERF_CONFIGFILE="/etc/avahi-ps-serf.conf"
+SERFTAG="services"
+SERFSTATUS="alive"
+LOGFILE="/tmp/avahi-ps-serf.log"
+IPFSTAG="ipfssvc"
+IPFSPATH="/etc/cloudy/ipfs/"
+IPFSBINPATH="/usr/local/bin/"
+IPFSBIN="ipfs"
+SERVICESDIR="services/"
+IPFSLOG="ipfs.log"
+[[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
+
+comprimir() {
+# Compta això no pot tenir més de 512 caracters (510 pq s= ocupa 2 caracters)
+	bzip2 -|base64 -w 0
+}
+descomprimir(){
+	base64 -d -|bunzip2 -
+}
+
+getMy_SERFTAG_Services() {
+	local lServices
+
+	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${SERFTAG}")
+	[ ! -z "$lServices" -a "$lServices" != "null" ] && echo "$lServices"|sed 's/^"\(.*\)"$/\1/'|descomprimir|sed "s/'/"'"'"/g"|jq -c .[]
+}
+getMyServices() {
+	local lServices
+
+	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${IPFSTAG}" | tr -d '"')
+	if [ ! -z "$lServices" -a "$lServices" != "null" ]
+	then
+		svces=$(getIPFSServices $lServices)
+		echo $svces
+	fi
+}
+
+getIPFSServices() {
+	local svcHash
+	local lServices
+	local defServices
+	defServices=""
+	svcHash=$1
+	export IPFS_PATH=$IPFSPATH
+	lServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $svcHash | grep -o "\w*Qm\w*")
+	for i in $lServices
+	do
+	 svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i)
+	 echo $svc >> "$IPFSPATH"svc
+	 if [ ! -z "$defServices" ]
+	 then
+		defServices=$svc","$defServices
+	 else
+		defServices=$svc
+	 fi
+	done
+	echo "$defServices" | sed "s/'/"'"'"/g" #| jq -c -M .[]
+}
+
+addIPFSService() {
+	export IPFS_PATH=$IPFSPATH
+	hash=$(echo $2 $3 | md5sum | cut -d' ' -f 1)
+	if [ ! -z "$hash" ]
+	then
+		echo $1 > $IPFSPATH$SERVICESDIR$hash && addServiceDirToIPFS #directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
+		##add directory to IPFS and get hash of directory
+		#[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash && echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
+		#$SERFBIN tags -set ${IPFSTAG}=$directoryhash
+		#publish to ipns peer id
+		#$IPFSBIN name publish $directoryhash
+	fi
+}
+
+addServiceDirToIPFS(){
+	directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
+	#add directory to IPFS and get hash of directory
+	[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash #&& echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
+	$SERFBIN tags -set ${IPFSTAG}=$directoryhash
+
+}
+
+addMySERFService() {
+	myServices="$(getAllButOneServices $2 $3)"
+	defServices=""
+	for i in $myServices
+	do
+		defServices=$i","$defServices
+	done
+	defServices=$defServices$1
+	$SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
+}
+
+remMyIPFSService() {
+	rm $IPFSPATH$SERVICESDIR$1 && addServiceDirToIPFS
+}
+
+remMyService() {
+	myServices="$(getAllButOneServices $1 $2)"
+	defServices=""
+	for i in $myServices
+	do
+		if [ ! -z "$defServices" ]
+		then
+			defServices=$i","$defServices
+		else
+			defServices=$i
+		fi
+	done
+	[ -z "$defServices" ] && $SERFBIN tags -delete ${SERFTAG} || $SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
+}
+
+existService(){
+	local _Type
+	local _Desc
+	local _MCloud
+	local _Ip
+	local _Port
+	local _Device
+	local _TXT
+
+	_Type=$1
+	_Desc=$2
+	_MCloud=$3
+	_Ip=$4
+	_Port=$5
+	_Device=$6
+	_TXT=$7
+
+	echo $(getMyServices | grep '"s":"'$_Type'"'.*'""p":"'$_Port'"')
+
+}
+
+setToMyServices(){
+	local _Type
+	local _Desc
+	local _MCloud
+	local _Ip
+	local _Port
+	local _Device
+	local _TXT
+
+	_Type=$1
+	_Desc=$2
+	_MCloud=$3
+	_Ip=$4
+	_Port=$5
+	_Device=$6
+	_TXT=$7
+
+  # En comptes de borrar el que hi hagi per el que entri potser primer mirar si el que volem posar és exactament igual a un existent.....
+
+	myService=$(existService "$_Type" "$_Desc" "$_MCloud" "$_Ip" "$_Port" "$_Device" "$_TXT")
+
+	[ -z "$myService" ] && {
+		addIPFSService "{'s':'$_Type','d':'$_Desc','m':'$_MCloud','i':'$_Ip','p':'$_Port','e':'$_Device','t':'$_TXT'}" "$_Type" "$_Port"
+	}
+
+}
+
+getOneService() {
+	local _Type
+	local _Port
+
+	_Type=$1
+	_Port=$2
+
+	getMyServices | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
+}
+
+getAllButOneServices() {
+	local _Type
+	local _Port
+
+	_Type=$1
+	_Port=$2
+
+	getMyServices | grep -v '"s":"'$_Type'"'.*'"p":"'$_Port'"'
+}
+
+serf_add_service(){
+
+	local _TXT
+	local Service
+	local Desc
+
+	_TXT=$(echo "$4"|tr "&" " ")
+	Service=$2
+	Desc=$(echo $1|sed 's/ /_/g')
+
+	setToMyServices "$Service" "$Desc" "${NODENAME}.${CLOUD_NAME}.local" "${PUBLIC_IP}" "$3" "$DEVICE_NAME" "$_TXT"
+
+
+}
+
+serf_rem_service(){
+
+	local Service
+	local Port
+	local s
+	Service=$1
+	Port=$2
+	s=$(getOneService $1 $2)
+	[ ! -z "$s" ] && remMyIPFSService $(echo $Service $Port | md5sum | cut -d' ' -f 1)
+}
+
+serf_add_nodeid() {
+	local node_id
+	local information
+
+	node_id="$1"
+	information="$2"
+
+	echo '{"node_id":'$node_id','${information:1}
+
+}
+
+# Find
+serf_find_(){
+	local defServices
+
+	defServices=""
+	ipfsServices=""
+	listServices="$($SERFBIN members -status=$SERFSTATUS -format json|jq -c -M '.members[]')"
+
+	for node in $listServices
+	do
+		node_id=$(echo "$node"|jq -c -M ".name")
+		mytags=$(echo "$node"|jq -c -M ".tags.${SERFTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
+		ipfstags=$(echo "$node"|jq -c -M ".tags.${IPFSTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
+		[ ! -z "$mytags" ] && {
+			myServices=$(echo "$mytags"|descomprimir|sed "s/'/"'"'"/g"|jq -c -M .[])
+			for i in $myServices
+			do
+				iservice="$(serf_add_nodeid "$node_id" "$i")"
+				if [ ! -z "$defServices" ]
+				then
+					defServices=$iservice","$defServices
+				else
+					defServices=$iservice
+				fi
+			done
+		}
+
+		[ ! -z "$ipfstags" ] && {
+			myServices=$(getIPFSServices $ipfstags)
+			for i in "$myServices"
+			do
+				iservice="$(serf_add_nodeid "$node_id" "$i")"
+				if [ ! -z "$defServices" ]
+				then
+					defServices=$iservice","$defServices
+				else
+					defServices=$iservice
+				fi
+			done
+		}
+	done
+	echo "[$defServices]"
+}
+
+serf_publish_service() {
+
+	local _DESCRIBE
+	local _TYPE
+	local _PORT
+	local _TXT
+
+	if [ $# -lt 3 ]
+	then
+		avahi-ps-help
+	fi
+
+	_DESCRIBE="$1"
+	_TYPE="$2"
+	_PORT="$3"
+	_TXT=${4:-""}
+	serf_add_service "$_DESCRIBE" "$_TYPE" "$_PORT" $_TXT
+}
+
+serf_unpublish_service(){
+	local _TYPE
+	local _PORT
+
+	if [ $# -lt 2 ]
+	then
+		avahi-ps-help
+	fi
+	_TYPE="$1"
+	_PORT=$2
+	serf_rem_service $_TYPE $_PORT
+}
+
+serf_search_service(){
+
+
+	local _SERVICE
+	local _HOST
+	if [ -z "$1" -o "$1" == "." ]
+	then
+		_SERVICE=".*"
+	fi
+	if [ -z "$2" -o "$2" == "." ]
+	then
+		_HOST=".*\.$CLOUD_NAME\.local"
+	else
+		_HOST="$2\.$CLOUD_NAME\.local"
+	fi
+	serf_find_ "$_SERVICE" "$_HOST"
+
+}
