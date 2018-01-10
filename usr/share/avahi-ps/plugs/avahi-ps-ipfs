@@ -15,14 +15,23 @@ SERVICESDIR="services/"
 IPFSLOG="ipfs.log"
 [[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
 
+################################################################################
+# TODO: this function does not seem to be used now in this package
+################################################################################
 comprimir() {
-# Compta això no pot tenir més de 512 caracters (510 pq s= ocupa 2 caracters)
 	bzip2 -|base64 -w 0
 }
+
+################################################################################
+# TODO: this function does not seem to be used now in this package
+################################################################################
 descomprimir(){
 	base64 -d -|bunzip2 -
 }
 
+################################################################################
+# TODO: this function does not seem to be used now in this package
+################################################################################
 getMy_SERFTAG_Services() {
 	local lServices
 
@@ -31,13 +40,14 @@ getMy_SERFTAG_Services() {
 }
 
 ################################################################################
-# getMyServices(): show the local services currently known to IPFS
+# getMyServices(): get the local services currently known to IPFS
 #
 # This function retrieves the local IPFS directory hash from Serf's IPFS tag. If
 # valid, it asks IPFS for the local servers.
 #
 # TODO: isn't there a better way to know the local IPFS directory hash without
-# asking Serf? :S
+# asking Serf? And, furthermore, to read the local list of services, which is
+# actually stored locally in a directory? :S
 ################################################################################
 getMyServices() {
 	local myServicesDirHash
@@ -51,6 +61,14 @@ getMyServices() {
 	fi
 }
 
+################################################################################
+# getIPFSServices(): get the list of services announced under a directory hash
+#
+# This function retrieves a public list of services which are stored in the
+# directory specified by its IPFS hash.
+#
+# TODO: add checks (e.g. directory empty, etc.)
+################################################################################
 getIPFSServices() {
 	local svcHash
 	local lServices
@@ -73,11 +91,23 @@ getIPFSServices() {
 	echo "$defServices" | sed "s/'/"'"'"/g" #| jq -c -M .[]
 }
 
+################################################################################
+# addIPFSService: add a service to the local IPFS services listed
+#
+# This function receives a new service to publish, which has been checked and
+# validated by the previous nested function calls and, finally, actually adds it
+# to the local IPFS services list.
+#
+# TODO: code cleanup needed.
+################################################################################
 addIPFSService() {
 	export IPFS_PATH=$IPFSPATH
+
+	# Calculate the MD5 checksum of the service information
 	hash=$(echo $2 $3 | md5sum | cut -d' ' -f 1)
-	if [ ! -z "$hash" ]
-	then
+	if [ ! -z "$hash" ]; then
+		# Save the service information to a file named with the service info's hash
+		# and add the services directory, which will have changed, to IPFS
 		echo $1 > $IPFSPATH$SERVICESDIR$hash && addServiceDirToIPFS #directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
 		##add directory to IPFS and get hash of directory
 		#[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash && echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
@@ -87,14 +117,32 @@ addIPFSService() {
 	fi
 }
 
+################################################################################
+# addServiceDirToIPFS(): add the services directory to IPFS and publish it via
+# Serf
+#
+# This function adds the services directory (recursively) to IPFS, gets the
+# corresponding hash and publishes it via Serf.
+#
+# TODO: find out the purpose of the last command.
+################################################################################
 addServiceDirToIPFS(){
+	# Add the directory to IPFS and retrieve its hash
 	directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
-	#add directory to IPFS and get hash of directory
-	[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash #&& echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
-	$SERFBIN tags -set ${IPFSTAG}=$directoryhash
+	# TODO: IPFS could have done the magic output manipulation for us:
+	#       directoryhash=$($IPFSBINPATH$IPFSBIN add -r -Q $IPFSPATH$SERVICESDIR)
 
+	# If the hash is not null, publish it via SERF
+	# TODO: beyond not null, its length could also be checked
+	[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash #&& echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
+
+	# TODO: why is this repeated?
+	$SERFBIN tags -set ${IPFSTAG}=$directoryhash
 }
 
+################################################################################
+# TODO: this function does not seem to be used now in this package
+################################################################################
 addMySERFService() {
 	myServices="$(getAllButOneServices $2 $3)"
 	defServices=""
@@ -125,9 +173,12 @@ remMyService() {
 	[ -z "$defServices" ] && $SERFBIN tags -delete ${SERFTAG} || $SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
-# existService(): check if the given service exists in IPFS's local list
+################################################################################
+# existService(): check if a given service exists in IPFS's local list
 #
-# TODO: Does the grep filtering work properly?
+# This function checks if the given service matches any in the local list of
+# services.
+################################################################################
 existService(){
 	local _Type
 	local _Desc
@@ -145,10 +196,18 @@ existService(){
 	_Device=$6
 	_TXT=$7
 
-	echo $(getMyServices | grep '"s":"'$_Type'"'.*'""p":"'$_Port'"')
+	echo $(getMyServices | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"')
 }
 
-
+################################################################################
+# setToMyServices(): look for a service in IPFS's local list and add if missing
+#
+# This function checks if the given service is in IPFS' local list of services
+# and adds it if it is not there.
+#
+# TODO: This could most likely be merged with the previous nested functions that
+# ended up calling this one.
+################################################################################
 setToMyServices(){
 	local _Type
 	local _Desc
@@ -166,14 +225,11 @@ setToMyServices(){
 	_Device=$6
 	_TXT=$7
 
-  # En comptes de borrar el que hi hagi per el que entri potser primer mirar si el que volem posar és exactament igual a un existent.....
-
 	myService=$(existService "$_Type" "$_Desc" "$_MCloud" "$_Ip" "$_Port" "$_Device" "$_TXT")
 
 	[ -z "$myService" ] && {
 		addIPFSService "{'s':'$_Type','d':'$_Desc','m':'$_MCloud','i':'$_Ip','p':'$_Port','e':'$_Device','t':'$_TXT'}" "$_Type" "$_Port"
 	}
-
 }
 
 getOneService() {
@@ -196,12 +252,14 @@ getAllButOneServices() {
 	getMyServices | grep -v '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
+################################################################################
 # ipfs_add_service(): receive a request to add a service and add it.
 #
 # This function performs a minimal processing on the parameters and actually
 # calls the actual addition of the service via IPFS
 #
 # TODO: it might be merged with ipfs_publish_service() function
+################################################################################
 ipfs_add_service(){
 
 	local _DESCRIPTION
@@ -239,7 +297,11 @@ ipfs_add_nodeid() {
 
 }
 
-# Find
+################################################################################
+# ipfs_find()
+#
+# TODO: remove nasty echos
+################################################################################
 ipfs_find_(){
 
 	echo "AAAAAA_ipfs_find_ ($1) ($2)"
@@ -310,11 +372,14 @@ ipfs_find_(){
 	echo "[$defServices]"
 }
 
-
+################################################################################
 # ipfs_publish_service(): receive a request to publish a service and publish it.
 #
 # This function performs a minimal test on the parameters and calls the actual
 # addition of the service via IPFS
+#
+# TODO: remove nasty echo
+################################################################################
 ipfs_publish_service() {
 	echo "AAAAAA_ipfs_publish_service ($1) ($2) ($3) ($4)"
 
@@ -349,8 +414,12 @@ ipfs_unpublish_service(){
 	ipfs_rem_service $_TYPE $_PORT
 }
 
+################################################################################
+# ipfs_search_service():
+#
+# TODO: remove nasty echo
+################################################################################
 ipfs_search_service(){
-
 	echo "AAAAAA_ipfs_search_service ($1) ($2)"
 	local _SERVICE
 	local _HOST
@@ -365,5 +434,4 @@ ipfs_search_service(){
 		_HOST="$2\.$CLOUD_NAME\.local"
 	fi
 	ipfs_find_ "$_SERVICE" "$_HOST"
-
 }
