@@ -29,14 +29,25 @@ getMy_SERFTAG_Services() {
 	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${SERFTAG}")
 	[ ! -z "$lServices" -a "$lServices" != "null" ] && echo "$lServices"|sed 's/^"\(.*\)"$/\1/'|descomprimir|sed "s/'/"'"'"/g"|jq -c .[]
 }
-getMyServices() {
-	local lServices
 
-	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${IPFSTAG}" | tr -d '"')
-	if [ ! -z "$lServices" -a "$lServices" != "null" ]
+################################################################################
+# getMyServices(): show the local services currently known to IPFS
+#
+# This function retrieves the local IPFS directory hash from Serf's IPFS tag. If
+# valid, it asks IPFS for the local servers.
+#
+# TODO: isn't there a better way to know the local IPFS directory hash without
+# asking Serf? :S
+################################################################################
+getMyServices() {
+	local myServicesDirHash
+	local myServices
+
+	myServicesDirHash=$($SERFBIN info -format json|jq -c -M ".tags.${IPFSTAG}" | tr -d '"')
+	if [ ! -z "$myServicesDirHash" -a "$myServicesDirHash" != "null" ]
 	then
-		svces=$(getIPFSServices $lServices)
-		echo $svces
+		myServices=$(getIPFSServices $myServicesDirHash)
+		echo $myServices
 	fi
 }
 
@@ -47,10 +58,10 @@ getIPFSServices() {
 	defServices=""
 	svcHash=$1
 	export IPFS_PATH=$IPFSPATH
-	lServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $svcHash | grep -o "\w*Qm\w*")
+	lServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $svcHash 2> /dev/null | grep -o "\w*Qm\w*")
 	for i in $lServices
 	do
-	 svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i)
+	 svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i 2> /dev/null)
 	 echo $svc >> "$IPFSPATH"svc
 	 if [ ! -z "$defServices" ]
 	 then
@@ -114,6 +125,9 @@ remMyService() {
 	[ -z "$defServices" ] && $SERFBIN tags -delete ${SERFTAG} || $SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
+# existService(): check if the given service exists in IPFS's local list
+#
+# TODO: Does the grep filtering work properly?
 existService(){
 	local _Type
 	local _Desc
@@ -132,8 +146,8 @@ existService(){
 	_TXT=$7
 
 	echo $(getMyServices | grep '"s":"'$_Type'"'.*'""p":"'$_Port'"')
-
 }
+
 
 setToMyServices(){
 	local _Type
@@ -182,22 +196,28 @@ getAllButOneServices() {
 	getMyServices | grep -v '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
-serf_add_service(){
+# ipfs_add_service(): receive a request to add a service and add it.
+#
+# This function performs a minimal processing on the parameters and actually
+# calls the actual addition of the service via IPFS
+#
+# TODO: it might be merged with ipfs_publish_service() function
+ipfs_add_service(){
 
+	local _DESCRIPTION
+	local _TYPE
+	local _PORT
 	local _TXT
-	local Service
-	local Desc
 
+	_DESCRIPTION="$(echo $1|sed 's/ /_/g')"
+	_TYPE="$2"
+	_PORT="$3"
 	_TXT=$(echo "$4"|tr "&" " ")
-	Service=$2
-	Desc=$(echo $1|sed 's/ /_/g')
 
-	setToMyServices "$Service" "$Desc" "${NODENAME}.${CLOUD_NAME}.local" "${PUBLIC_IP}" "$3" "$DEVICE_NAME" "$_TXT"
-
-
+	setToMyServices "$_TYPE" "$_DESCRIPTION" "${NODENAME}.${CLOUD_NAME}.local" "${PUBLIC_IP}" "$_PORT" "$DEVICE_NAME" "$_TXT"
 }
 
-serf_rem_service(){
+ipfs_rem_service(){
 
 	local Service
 	local Port
@@ -208,7 +228,7 @@ serf_rem_service(){
 	[ ! -z "$s" ] && remMyIPFSService $(echo $Service $Port | md5sum | cut -d' ' -f 1)
 }
 
-serf_add_nodeid() {
+ipfs_add_nodeid() {
 	local node_id
 	local information
 
@@ -220,52 +240,85 @@ serf_add_nodeid() {
 }
 
 # Find
-serf_find_(){
+ipfs_find_(){
+
+	echo "AAAAAA_ipfs_find_ ($1) ($2)"
+
 	local defServices
 
 	defServices=""
 	ipfsServices=""
-	listServices="$($SERFBIN members -status=$SERFSTATUS -format json|jq -c -M '.members[]')"
 
-	for node in $listServices
-	do
-		node_id=$(echo "$node"|jq -c -M ".name")
-		mytags=$(echo "$node"|jq -c -M ".tags.${SERFTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
-		ipfstags=$(echo "$node"|jq -c -M ".tags.${IPFSTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
-		[ ! -z "$mytags" ] && {
-			myServices=$(echo "$mytags"|descomprimir|sed "s/'/"'"'"/g"|jq -c -M .[])
-			for i in $myServices
-			do
-				iservice="$(serf_add_nodeid "$node_id" "$i")"
-				if [ ! -z "$defServices" ]
-				then
-					defServices=$iservice","$defServices
-				else
-					defServices=$iservice
-				fi
-			done
-		}
+	# Get the list of services via Serf, in a space-separated array of json
+	# strings (i.e.: "{json_info_0} {json_info_1} {json_info_2}...")
 
-		[ ! -z "$ipfstags" ] && {
-			myServices=$(getIPFSServices $ipfstags)
-			for i in "$myServices"
-			do
-				iservice="$(serf_add_nodeid "$node_id" "$i")"
-				if [ ! -z "$defServices" ]
-				then
-					defServices=$iservice","$defServices
-				else
-					defServices=$iservice
-				fi
+	# deprecated listServices="$($SERFBIN members -status=$SERFSTATUS -format json|jq -c -M '.members[]')"
+	listServicesJson="$($SERFBIN members -status=$SERFSTATUS -format json 2> /dev/null)"
+
+	# If the services have been listed without errors, compact the JSON blob
+	if [ $? -eq 0 ]; then
+		listServices="$(echo $listServicesJson | jq -c -M '.members[]')"
+
+		# If the services have been compacted successfully, iterate on them
+		if [ $? -eq 0 ]; then
+			for node in $listServices; do
+				node_id=$(echo "$node"|jq -c -M ".name")
+				mytags=$(echo "$node"|jq -c -M ".tags.${SERFTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
+				ipfstags=$(echo "$node"|jq -c -M ".tags.${IPFSTAG}"|sed 's/^"\(.*\)"$/\1/'|grep -v "^null$")
+
+				# Skip the pure Serf part, which is handled by the package-serf
+				# package code itself
+				# [ ! -z "$mytags" ] && {
+				# 	myServices=$(echo "$mytags"|descomprimir|sed "s/'/"'"'"/g"|jq -c -M .[])
+				# 	for i in $myServices
+				# 	do
+				# 		iservice="$(serf_add_nodeid "$node_id" "$i")"
+				# 		if [ ! -z "$defServices" ]
+				# 		then
+				# 			defServices=$iservice","$defServices
+				# 		else
+				# 			defServices=$iservice
+				# 		fi
+				# 	done
+				# }
+
+				# Process the IPFS tag of the node, if present
+				[ ! -z "$ipfstags" ] && {
+					echo "AAAAAA node $node"
+					echo "AAAAAA ipfstag $ipfstags"
+					myServices=$(getIPFSServices $ipfstags)
+					echo "AAAAAA myservices $myServices"
+
+					# If the IPFS directory has been retrieved, iterate over
+					# the listed services
+					if [ ! -z "$myServices" ]; then
+						for i in "$myServices"; do
+							echo "AAAAAA myservices i $i"
+							iservice="$(ipfs_add_nodeid "$node_id" "$i")"
+							if [ ! -z "$defServices" ]
+							then
+								defServices=$iservice","$defServicesa
+							else
+								defServices=$iservice
+							fi
+						done
+					fi
+				}
 			done
-		}
-	done
+		fi
+	fi
 	echo "[$defServices]"
 }
 
-serf_publish_service() {
 
-	local _DESCRIBE
+# ipfs_publish_service(): receive a request to publish a service and publish it.
+#
+# This function performs a minimal test on the parameters and calls the actual
+# addition of the service via IPFS
+ipfs_publish_service() {
+	echo "AAAAAA_ipfs_publish_service ($1) ($2) ($3) ($4)"
+
+	local _DESCRIPTION
 	local _TYPE
 	local _PORT
 	local _TXT
@@ -275,14 +328,15 @@ serf_publish_service() {
 		avahi-ps-help
 	fi
 
-	_DESCRIBE="$1"
+	_DESCRIPTION="$1"
 	_TYPE="$2"
 	_PORT="$3"
 	_TXT=${4:-""}
-	serf_add_service "$_DESCRIBE" "$_TYPE" "$_PORT" $_TXT
+
+	ipfs_add_service "$_DESCRIPTION" "$_TYPE" "$_PORT" "$_TXT"
 }
 
-serf_unpublish_service(){
+ipfs_unpublish_service(){
 	local _TYPE
 	local _PORT
 
@@ -292,12 +346,12 @@ serf_unpublish_service(){
 	fi
 	_TYPE="$1"
 	_PORT=$2
-	serf_rem_service $_TYPE $_PORT
+	ipfs_rem_service $_TYPE $_PORT
 }
 
-serf_search_service(){
+ipfs_search_service(){
 
-
+	echo "AAAAAA_ipfs_search_service ($1) ($2)"
 	local _SERVICE
 	local _HOST
 	if [ -z "$1" -o "$1" == "." ]
@@ -310,6 +364,6 @@ serf_search_service(){
 	else
 		_HOST="$2\.$CLOUD_NAME\.local"
 	fi
-	serf_find_ "$_SERVICE" "$_HOST"
+	ipfs_find_ "$_SERVICE" "$_HOST"
 
 }
