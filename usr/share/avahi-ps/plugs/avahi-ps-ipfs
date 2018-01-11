@@ -1,7 +1,15 @@
 #!/bin/bash
 #
-# Faltar editar-lo
-# SERF, els tags només poden tenir un buffer de 512 bytes.
+# This file is a plug-in for the Avahi - Publish & Search (avahi-ps) system
+# that allows to use IPFS (in combination with Serf) as a database/transport
+# mechanism to publish the local list of services and read the search for the
+# remote ones announced by other nodes.
+
+################################################################################
+# Global variables, default definitions, etc.
+#
+# TODO: check if all of them are needed/used and remove the unnecessary ones.
+################################################################################
 SERFBIN="/opt/serf/serf"
 SERF_CONFIGFILE="/etc/avahi-ps-serf.conf"
 SERFTAG="services"
@@ -16,21 +24,25 @@ IPFSLOG="ipfs.log"
 [[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
 
 ################################################################################
-# TODO: this function does not seem to be used now in this package
+# TODO: this function does not seem to be needed anymore in this package.
 ################################################################################
 comprimir() {
 	bzip2 -|base64 -w 0
 }
 
 ################################################################################
-# TODO: this function does not seem to be used now in this package
+# TODO: this function does not seem to be needed anymore in this package, as it
+# is called only by the getMy_SERFTAG_Services() function.
 ################################################################################
 descomprimir(){
 	base64 -d -|bunzip2 -
 }
 
 ################################################################################
-# TODO: this function does not seem to be used now in this package
+# getMy_SERFTAG_Services(): get the local list of services via Serf.
+#
+# TODO: this function does not seem to be needed anymore in this package, as it
+# is not called anywhere.
 ################################################################################
 getMy_SERFTAG_Services() {
 	local lServices
@@ -62,7 +74,8 @@ getMyServices() {
 }
 
 ################################################################################
-# getIPFSServices(): get the list of services announced under a directory hash
+# getIPFSServices(): get the list of services announced under an IPFS directory
+# identified by its hash
 #
 # This function retrieves a public list of services which are stored in the
 # directory specified by its IPFS hash.
@@ -70,25 +83,41 @@ getMyServices() {
 # TODO: add checks (e.g. directory empty, etc.)
 ################################################################################
 getIPFSServices() {
-	local svcHash
-	local lServices
-	local defServices
-	defServices=""
-	svcHash=$1
-	export IPFS_PATH=$IPFSPATH
-	lServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $svcHash 2> /dev/null | grep -o "\w*Qm\w*")
-	for i in $lServices
-	do
-	 svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i 2> /dev/null)
-	 echo $svc >> "$IPFSPATH"svc
-	 if [ ! -z "$defServices" ]
-	 then
-		defServices=$svc","$defServices
-	 else
-		defServices=$svc
-	 fi
-	done
-	echo "$defServices" | sed "s/'/"'"'"/g" #| jq -c -M .[]
+	if [ ! -z "$1" ]; then
+		local dirHash=$1
+		local listServices
+		local defServices=""
+
+		export IPFS_PATH=$IPFSPATH
+
+		# List the IPFS services directory
+		listServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $dirHash 2> /dev/null | grep -o "\w*Qm\w*")
+
+		if [ ! -z "$listServices" -a "$listServices" != "null" ]; then
+			# Iterate on the list of files in the directory, which correspond
+			# each one to a service
+			for i in $listServices; do
+				local svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i 2> /dev/null)
+
+				# TODO: Why are the services saved to this file every time? What
+				# is the file used for?? Is it ever removed or does it just grow
+				# indefinitely???
+				echo $svc >> "$IPFSPATH"svc
+
+				# Concatenate the current service with the ones already iterated
+				if [ ! -z "$defServices" ]; then
+					defServices=$defServices","$svc
+				else
+					defServices=$svc
+				fi
+			done
+
+			# Output the comma-concatenated list of services
+			# Warning: this is not a valid JSON array blob, as the leading and
+			# trailing square brackets (i.e. [ %services_here ]) are missing.
+			echo "$defServices" | sed "s/'/"'"'"/g" #| jq -c -M .[]
+		fi
+	fi
 }
 
 ################################################################################
@@ -108,7 +137,11 @@ addIPFSService() {
 	if [ ! -z "$hash" ]; then
 		# Save the service information to a file named with the service info's hash
 		# and add the services directory, which will have changed, to IPFS
-		echo $1 > $IPFSPATH$SERVICESDIR$hash && addServiceDirToIPFS #directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
+		echo $1 > $IPFSPATH$SERVICESDIR$hash && addServiceDirToIPFS
+
+		# TODO: the following lines of code seem to have been relocated
+		# to other functions. This debris should be removed, shouldn't it?
+		#directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
 		##add directory to IPFS and get hash of directory
 		#[ ! -z "$directoryhash" ] && $SERFBIN tags -set ${IPFSTAG}=$directoryhash && echo "added directory "$directoryhash >> $IPFSPATH$IPFSLOG
 		#$SERFBIN tags -set ${IPFSTAG}=$directoryhash
@@ -141,7 +174,7 @@ addServiceDirToIPFS(){
 }
 
 ################################################################################
-# TODO: this function does not seem to be used now in this package
+# TODO: this function does not seem to be needed anymore in this package.
 ################################################################################
 addMySERFService() {
 	myServices="$(getAllButOneServices $2 $3)"
@@ -154,10 +187,20 @@ addMySERFService() {
 	$SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
+################################################################################
+# remMyIPFSService(): remove a service from IPFS' and update the services list.
+#
+# This function removes the file containing the information of a local service
+# from the services directory and, on success, calls addServiceDirToIPFS to
+# update the services directory IPFS hash.
+################################################################################
 remMyIPFSService() {
 	rm $IPFSPATH$SERVICESDIR$1 && addServiceDirToIPFS
 }
 
+################################################################################
+# TODO: this function does not seem to be needed anymore in this package.
+################################################################################
 remMyService() {
 	myServices="$(getAllButOneServices $1 $2)"
 	defServices=""
@@ -232,6 +275,17 @@ setToMyServices(){
 	}
 }
 
+################################################################################
+# getOneService(): get the information about a local service specified by its
+# type and port.
+#
+# This function gets the local list of services and should return the
+# information about the service specified by the type and port parameters.
+#
+# Warning & TODO: Given the way the getMyServices() function returns the local
+# list of services, the current function returns the WHOLE list of services, not
+# just the ONE that has been queried for.
+################################################################################
 getOneService() {
 	local _Type
 	local _Port
@@ -239,9 +293,22 @@ getOneService() {
 	_Type=$1
 	_Port=$2
 
+	# TODO: this needs fixing
 	getMyServices | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
+################################################################################
+# getAllButOneServices(): get the local services list excluding the one
+# specified by its type and port.
+#
+# This function gets the local list of services and should return the
+# information about all of them except the one specified by the type and port
+# parameters.
+#
+# Warning & TODO: Given the way the getMyServices() function returns the local
+# list of services, the current function returns nothing when the queried
+# service is in the list.
+################################################################################
 getAllButOneServices() {
 	local _Type
 	local _Port
@@ -249,6 +316,7 @@ getAllButOneServices() {
 	_Type=$1
 	_Port=$2
 
+	# TODO: this needs fixing
 	getMyServices | grep -v '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
@@ -275,6 +343,17 @@ ipfs_add_service(){
 	setToMyServices "$_TYPE" "$_DESCRIPTION" "${NODENAME}.${CLOUD_NAME}.local" "${PUBLIC_IP}" "$_PORT" "$DEVICE_NAME" "$_TXT"
 }
 
+################################################################################
+# ipfs_rem_service(): remove the specified service from IPFS' services list.
+#
+# This function gets the whole information about the service specified by the
+# parameters from the getOneService() function and removes it from IPFS by
+# calling the remMyIPFSService() function.
+#
+# Warning & TODO: because getOneService() does not work as expected and returns
+# ALL the local services, when ipfs_rem_service() is called, it removes ALL the
+# local services (related: https://github.com/Clommunity/package-serf/issues/8)
+################################################################################
 ipfs_rem_service(){
 
 	local Service
@@ -282,9 +361,12 @@ ipfs_rem_service(){
 	local s
 	Service=$1
 	Port=$2
+
+	# TODO: getOneService() function returns wrong data
 	s=$(getOneService $1 $2)
 	[ ! -z "$s" ] && remMyIPFSService $(echo $Service $Port | md5sum | cut -d' ' -f 1)
 }
+
 
 ipfs_add_nodeid() {
 	local node_id
@@ -401,6 +483,16 @@ ipfs_publish_service() {
 	ipfs_add_service "$_DESCRIPTION" "$_TYPE" "$_PORT" "$_TXT"
 }
 
+################################################################################
+# ipfs_unpublish_service(): unpublish a service from IPFS.
+#
+# This function performs a minimal test on the parameters and calls the actual
+# removal of the service from IPFS.
+#
+# Warning & TODO: because getOneService() does not work as expected and returns
+# ALL the local services, when ipfs_rem_service() is called, it removes ALL the
+# local services (related: https://github.com/Clommunity/package-serf/issues/8)
+################################################################################
 ipfs_unpublish_service(){
 	local _TYPE
 	local _PORT
@@ -415,7 +507,10 @@ ipfs_unpublish_service(){
 }
 
 ################################################################################
-# ipfs_search_service():
+# ipfs_search_service(): search for a service specified by the parameters.
+#
+# This function searches the service specified in the call parameters in the
+# global IPFS services list.
 #
 # TODO: remove nasty echo
 ################################################################################
