@@ -1,0 +1,70 @@
+#!/bin/sh
+#
+### BEGIN INIT INFO
+# Provides:          cloudy-ipfs
+# Required-Start:    $local_fs $remote_fs $network $syslog $named
+# Required-Stop:     $local_fs $remote_fs $network $syslog $named
+# Default-Start:     2 3 4 5
+# Default-Stop:      0 1 6
+# X-Interactive:     true
+# Short-Description: Start/Stop A highly-available key value store for shared configuration and service discovery
+### END INIT INFO
+
+NAME="IPFS"
+INITNAME="cloudy-ipfs"
+CLOUDYNAME="Cloudy IPFS"
+
+IPFSPATH="/usr/local/bin"
+IPFSBIN="$IPFSPATH/ipfs"
+
+CLOUDYIPFSPATH="/etc/cloudy/ipfs/"
+
+PIDFILE="/var/run/cloudy-ipfs.pid"
+
+test -f $IPFSBIN || { echo "Error: the $CLOUDYNAME package is not installed. Exiting..." && exit 3 ; }
+test -d $CLOUDYIPFSPATH || { echo "Error: the $CLOUDYNAME package is not initialized. Exiting..." && exit 4 ; }
+
+start() {
+  # Check if the daemon is already running
+  [ -f $PIDFILE ] && echo "$NAME is already running (process #$(cat $PIDFILE)). Exiting..." && exit 1
+
+  # Export globals
+  export IPFS_PATH=$CLOUDYIPFSPATH
+
+  #Start the daemon, quietly, in the background
+	echo "Starting $NAME..."
+  $IPFSBIN daemon > /dev/null 2>&1 &
+  PID=$!
+  echo "$NAME started with PID $PID"
+  echo $PID > $PIDFILE
+}
+
+stop() {
+  # Stop the daemon by sending the signal to the running process specified by $PIDFILE
+  [ -f $PIDFILE ] || { echo "$NAME is not running. Exiting..." && return 2 ; }
+  [ -f $PIDFILE ] && echo "Stopping $NAME. Sending terminate signal to process $(cat $PIDFILE)..." && kill -15 $(cat $PIDFILE) && sleep 1 && rm -f $PIDFILE
+}
+
+restart() {
+  stop
+  sleep 1
+  start
+}
+
+case "$1" in
+  start)
+    start
+  ;;
+  stop)
+    stop
+  ;;
+  restart)
+    restart
+  ;;
+  *)
+    echo "Usage: /etc/init.d/$INITNAME {start|stop|restart}"
+    exit 1
+  ;;
+esac
+
+exit 0
