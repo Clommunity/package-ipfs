@@ -13,10 +13,12 @@ all:
 clean:
 	@echo "clean"
 install:
-	@echo "Make directory"
+	@echo "Make required directories"
 	mkdir -p $(INSTALLDIR)/$(INSTALLPATH)
-	@echo "Install file"
+	mkdir -p $(INSTALLDIR)/etc/init.d/
+	@echo "Install files"
 	install -m 0755 bin/$(ARCH)/$(BZIP2NAME) $(INSTALLDIR)/$(INSTALLPATH)
+	install -m 0755 init.d/cloudy-ipfs $(INSTALLDIR)/etc/init.d/
 	bunzip2 $(INSTALLDIR)/$(INSTALLPATH)/$(BZIP2NAME)
 
 .PHONY: all clean install
