@@ -22,6 +22,7 @@ IPFSBIN="ipfs"
 SERVICESDIR="services/"
 IPFSLOG="ipfs.log"
 [[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
+DEBUG=false
 
 ################################################################################
 # TODO: this function does not seem to be needed anymore in this package.
@@ -381,12 +382,10 @@ ipfs_add_nodeid() {
 
 ################################################################################
 # ipfs_find()
-#
-# TODO: remove nasty echos
 ################################################################################
 ipfs_find_(){
 
-	echo "AAAAAA_ipfs_find_ ($1) ($2)"
+  [ "$DEBUG" = true ] && echo "ipfs_find_ ($1) ($2)"
 
 	local defServices
 
@@ -428,16 +427,16 @@ ipfs_find_(){
 
 				# Process the IPFS tag of the node, if present
 				[ ! -z "$ipfstags" ] && {
-					echo "AAAAAA node $node"
-					echo "AAAAAA ipfstag $ipfstags"
+					[ "$DEBUG" = true ] && echo "node $node"
+					[ "$DEBUG" = true ] && echo "ipfstag $ipfstags"
 					myServices=$(getIPFSServices $ipfstags)
-					echo "AAAAAA myservices $myServices"
+					[ "$DEBUG" = true ] && echo "myservices $myServices"
 
 					# If the IPFS directory has been retrieved, iterate over
 					# the listed services
 					if [ ! -z "$myServices" ]; then
 						for i in "$myServices"; do
-							echo "AAAAAA myservices i $i"
+							[ "$DEBUG" = true ] && echo "myservices i $i"
 							iservice="$(ipfs_add_nodeid "$node_id" "$i")"
 							if [ ! -z "$defServices" ]
 							then
@@ -459,11 +458,9 @@ ipfs_find_(){
 #
 # This function performs a minimal test on the parameters and calls the actual
 # addition of the service via IPFS
-#
-# TODO: remove nasty echo
 ################################################################################
 ipfs_publish_service() {
-	echo "AAAAAA_ipfs_publish_service ($1) ($2) ($3) ($4)"
+	[ "$DEBUG" = true ] && echo "ipfs_publish_service ($1) ($2) ($3) ($4)"
 
 	local _DESCRIPTION
 	local _TYPE
@@ -511,11 +508,9 @@ ipfs_unpublish_service(){
 #
 # This function searches the service specified in the call parameters in the
 # global IPFS services list.
-#
-# TODO: remove nasty echo
-################################################################################
+#################################################################################
 ipfs_search_service(){
-	echo "AAAAAA_ipfs_search_service ($1) ($2)"
+	[ "$DEBUG" = true ] && echo "ipfs_search_service ($1) ($2)"
 	local _SERVICE
 	local _HOST
 	if [ -z "$1" -o "$1" == "." ]
