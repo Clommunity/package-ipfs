@@ -52,12 +52,14 @@ getServicesHash(){
 # TODO: isn't there a better way to know the local IPFS directory hash without
 # asking Serf? And, furthermore, to read the local list of services, which is
 # actually stored locally in a directory? :S
+# NOTE: Serf is not used anymore :)
 ################################################################################
 getMyServices() {
 	local myServicesDirHash
 	local myServices
 
-	myServicesDirHash=$($SERFBIN info -format json|jq -c -M ".tags.${IPFSTAG}" | tr -d '"')
+	myServicesDirHash=$(getServicesHash)
+
 	if [ ! -z "$myServicesDirHash" -a "$myServicesDirHash" != "null" ]
 	then
 		myServices=$(getIPFSServices $myServicesDirHash)
@@ -153,9 +155,7 @@ addIPFSService() {
 ################################################################################
 addServiceDirToIPFS(){
 	# Add the directory to IPFS and retrieve its hash
-	directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
-	# TODO: IPFS could have done the magic output manipulation for us:
-	#       directoryhash=$($IPFSBINPATH$IPFSBIN add -r -Q $IPFSPATH$SERVICESDIR)
+	directoryhash=$(getServicesHash)
 
 	# If the hash is not null, publish it via SERF
 	# TODO: beyond not null, its length could also be checked
@@ -241,10 +241,6 @@ setToMyServices(){
 #
 # This function gets the local list of services and should return the
 # information about the service specified by the type and port parameters.
-#
-# Warning & TODO: Given the way the getMyServices() function returns the local
-# list of services, the current function returns the WHOLE list of services, not
-# just the ONE that has been queried for.
 ################################################################################
 getOneService() {
 	local _Type
