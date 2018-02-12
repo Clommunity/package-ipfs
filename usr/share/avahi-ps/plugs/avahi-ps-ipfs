@@ -306,8 +306,7 @@ getOneService() {
 	_Type=$1
 	_Port=$2
 
-	# TODO: this needs fixing
-	getMyServices | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
+	getMyServicesList | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
 ################################################################################
@@ -452,7 +451,7 @@ ipfs_find_(){
 							iservice="$(ipfs_add_nodeid "$node_id" "$i")"
 							if [ ! -z "$defServices" ]
 							then
-								defServices=$iservice","$defServicesa
+								defServices=$iservice","$defServices
 							else
 								defServices=$iservice
 							fi
