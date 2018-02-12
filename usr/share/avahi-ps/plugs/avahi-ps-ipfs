@@ -68,6 +68,31 @@ getMyServices() {
 }
 
 ################################################################################
+# getMyServicesList(): get the local services currently known to IPFS
+#
+# This function retrieves the local IPFS directory hash from Serf's IPFS tag. If
+# valid, it asks IPFS for the local servers.
+#
+# TODO: isn't there a better way to know the local IPFS directory hash without
+# asking Serf? And, furthermore, to read the local list of services, which is
+# actually stored locally in a directory? :S
+# NOTE: Serf is not used anymore :)
+################################################################################
+getMyServicesList() {
+	local myServicesDirHash
+	local myServices
+
+	myServicesDirHash=$(getServicesHash)
+
+	if [ ! -z "$myServicesDirHash" -a "$myServicesDirHash" != "null" ]
+	then
+		for i in $(getIPFSServicesList $myServicesDirHash); do
+      echo $i
+    done
+	fi
+}
+
+################################################################################
 # getIPFSServices(): get the list of services announced under an IPFS directory
 # identified by its hash
 #
@@ -110,6 +135,38 @@ getIPFSServices() {
 			# Warning: this is not a valid JSON array blob, as the leading and
 			# trailing square brackets (i.e. [ %services_here ]) are missing.
 			echo "$defServices" | sed "s/'/"'"'"/g" #| jq -c -M .[]
+		fi
+	fi
+}
+
+################################################################################
+# getIPFSServicesList(): get the list of services announced under an IPFS
+# directory identified by its hash, one per line
+#
+# This function retrieves a public list of services which are stored in the
+# directory specified by its IPFS hash and echoes it, one service per line.
+#
+# TODO: add checks (e.g. directory empty, etc.)
+################################################################################
+getIPFSServicesList() {
+	if [ ! -z "$1" ]; then
+		local dirHash=$1
+		local listServices
+		local defServices=""
+
+		export IPFS_PATH=$IPFSPATH
+
+		# List the IPFS services directory
+		listServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $dirHash 2> /dev/null | grep -o "\w*Qm\w*")
+
+		if [ ! -z "$listServices" -a "$listServices" != "null" ]; then
+			# Iterate on the list of files in the directory, which correspond
+			# each one to a service
+			for i in $listServices; do
+				local svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i 2> /dev/null)
+
+				echo "$svc" | sed "s/'/"'"'"/g"
+			done
 		fi
 	fi
 }
