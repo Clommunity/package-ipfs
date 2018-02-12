@@ -25,34 +25,6 @@ IPFSLOG="ipfs.log"
 DEBUG=false
 
 ################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-comprimir() {
-	bzip2 -|base64 -w 0
-}
-
-################################################################################
-# TODO: this function does not seem to be needed anymore in this package, as it
-# is called only by the getMy_SERFTAG_Services() function.
-################################################################################
-descomprimir(){
-	base64 -d -|bunzip2 -
-}
-
-################################################################################
-# getMy_SERFTAG_Services(): get the local list of services via Serf.
-#
-# TODO: this function does not seem to be needed anymore in this package, as it
-# is not called anywhere.
-################################################################################
-getMy_SERFTAG_Services() {
-	local lServices
-
-	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${SERFTAG}")
-	[ ! -z "$lServices" -a "$lServices" != "null" ] && echo "$lServices"|sed 's/^"\(.*\)"$/\1/'|descomprimir|sed "s/'/"'"'"/g"|jq -c .[]
-}
-
-################################################################################
 # getMyServices(): get the local services currently known to IPFS
 #
 # This function retrieves the local IPFS directory hash from Serf's IPFS tag. If
@@ -175,20 +147,6 @@ addServiceDirToIPFS(){
 }
 
 ################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-addMySERFService() {
-	myServices="$(getAllButOneServices $2 $3)"
-	defServices=""
-	for i in $myServices
-	do
-		defServices=$i","$defServices
-	done
-	defServices=$defServices$1
-	$SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
-}
-
-################################################################################
 # remMyIPFSService(): remove a service from IPFS' and update the services list.
 #
 # This function removes the file containing the information of a local service
@@ -197,24 +155,6 @@ addMySERFService() {
 ################################################################################
 remMyIPFSService() {
 	rm $IPFSPATH$SERVICESDIR$1 && addServiceDirToIPFS
-}
-
-################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-remMyService() {
-	myServices="$(getAllButOneServices $1 $2)"
-	defServices=""
-	for i in $myServices
-	do
-		if [ ! -z "$defServices" ]
-		then
-			defServices=$i","$defServices
-		else
-			defServices=$i
-		fi
-	done
-	[ -z "$defServices" ] && $SERFBIN tags -delete ${SERFTAG} || $SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
 ################################################################################
