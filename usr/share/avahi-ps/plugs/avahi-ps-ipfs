@@ -24,33 +24,24 @@ IPFSLOG="ipfs.log"
 [[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
 DEBUG=false
 
-################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-comprimir() {
-	bzip2 -|base64 -w 0
-}
 
 ################################################################################
-# TODO: this function does not seem to be needed anymore in this package, as it
-# is called only by the getMy_SERFTAG_Services() function.
-################################################################################
-descomprimir(){
-	base64 -d -|bunzip2 -
-}
-
-################################################################################
-# getMy_SERFTAG_Services(): get the local list of services via Serf.
+# getServicesHash(): generate the IPFS hash of the services directory
 #
-# TODO: this function does not seem to be needed anymore in this package, as it
-# is not called anywhere.
+# This function adds the services directory (recursively) to IPFS and returns
+# the corresponding hash.
 ################################################################################
-getMy_SERFTAG_Services() {
-	local lServices
+getServicesHash(){
+  export IPFS_PATH=$IPFSPATH
 
-	lServices=$($SERFBIN info -format json|jq -c -M ".tags.${SERFTAG}")
-	[ ! -z "$lServices" -a "$lServices" != "null" ] && echo "$lServices"|sed 's/^"\(.*\)"$/\1/'|descomprimir|sed "s/'/"'"'"/g"|jq -c .[]
+	# Add the directory to IPFS and retrieve its hash
+	directoryhash=$($IPFSBINPATH$IPFSBIN add -r -Q $IPFSPATH$SERVICESDIR)
+
+	# If the hash is not null, echo it
+	# TODO: beyond not being null, its length could also be checked
+	[ ! -z "$directoryhash" -a "$directoryhash" != "null"  ] && echo "$directoryhash"
 }
+
 
 ################################################################################
 # getMyServices(): get the local services currently known to IPFS
@@ -61,16 +52,43 @@ getMy_SERFTAG_Services() {
 # TODO: isn't there a better way to know the local IPFS directory hash without
 # asking Serf? And, furthermore, to read the local list of services, which is
 # actually stored locally in a directory? :S
+# NOTE: Serf is not used anymore :)
 ################################################################################
 getMyServices() {
 	local myServicesDirHash
 	local myServices
 
-	myServicesDirHash=$($SERFBIN info -format json|jq -c -M ".tags.${IPFSTAG}" | tr -d '"')
+	myServicesDirHash=$(getServicesHash)
+
 	if [ ! -z "$myServicesDirHash" -a "$myServicesDirHash" != "null" ]
 	then
 		myServices=$(getIPFSServices $myServicesDirHash)
 		echo $myServices
+	fi
+}
+
+################################################################################
+# getMyServicesList(): get the local services currently known to IPFS
+#
+# This function retrieves the local IPFS directory hash from Serf's IPFS tag. If
+# valid, it asks IPFS for the local servers.
+#
+# TODO: isn't there a better way to know the local IPFS directory hash without
+# asking Serf? And, furthermore, to read the local list of services, which is
+# actually stored locally in a directory? :S
+# NOTE: Serf is not used anymore :)
+################################################################################
+getMyServicesList() {
+	local myServicesDirHash
+	local myServices
+
+	myServicesDirHash=$(getServicesHash)
+
+	if [ ! -z "$myServicesDirHash" -a "$myServicesDirHash" != "null" ]
+	then
+		for i in $(getIPFSServicesList $myServicesDirHash); do
+      echo $i
+    done
 	fi
 }
 
@@ -122,6 +140,38 @@ getIPFSServices() {
 }
 
 ################################################################################
+# getIPFSServicesList(): get the list of services announced under an IPFS
+# directory identified by its hash, one per line
+#
+# This function retrieves a public list of services which are stored in the
+# directory specified by its IPFS hash and echoes it, one service per line.
+#
+# TODO: add checks (e.g. directory empty, etc.)
+################################################################################
+getIPFSServicesList() {
+	if [ ! -z "$1" ]; then
+		local dirHash=$1
+		local listServices
+		local defServices=""
+
+		export IPFS_PATH=$IPFSPATH
+
+		# List the IPFS services directory
+		listServices=$(timeout 10 $IPFSBINPATH$IPFSBIN ls $dirHash 2> /dev/null | grep -o "\w*Qm\w*")
+
+		if [ ! -z "$listServices" -a "$listServices" != "null" ]; then
+			# Iterate on the list of files in the directory, which correspond
+			# each one to a service
+			for i in $listServices; do
+				local svc=$(timeout 5 $IPFSBINPATH$IPFSBIN cat $i 2> /dev/null)
+
+				echo "$svc" | sed "s/'/"'"'"/g"
+			done
+		fi
+	fi
+}
+
+################################################################################
 # addIPFSService: add a service to the local IPFS services listed
 #
 # This function receives a new service to publish, which has been checked and
@@ -162,9 +212,7 @@ addIPFSService() {
 ################################################################################
 addServiceDirToIPFS(){
 	# Add the directory to IPFS and retrieve its hash
-	directoryhash=$($IPFSBINPATH$IPFSBIN add -r $IPFSPATH$SERVICESDIR | rev | cut -d' ' -f 2 | rev | tail -n 1)
-	# TODO: IPFS could have done the magic output manipulation for us:
-	#       directoryhash=$($IPFSBINPATH$IPFSBIN add -r -Q $IPFSPATH$SERVICESDIR)
+	directoryhash=$(getServicesHash)
 
 	# If the hash is not null, publish it via SERF
 	# TODO: beyond not null, its length could also be checked
@@ -172,20 +220,6 @@ addServiceDirToIPFS(){
 
 	# TODO: why is this repeated?
 	$SERFBIN tags -set ${IPFSTAG}=$directoryhash
-}
-
-################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-addMySERFService() {
-	myServices="$(getAllButOneServices $2 $3)"
-	defServices=""
-	for i in $myServices
-	do
-		defServices=$i","$defServices
-	done
-	defServices=$defServices$1
-	$SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
 ################################################################################
@@ -197,24 +231,6 @@ addMySERFService() {
 ################################################################################
 remMyIPFSService() {
 	rm $IPFSPATH$SERVICESDIR$1 && addServiceDirToIPFS
-}
-
-################################################################################
-# TODO: this function does not seem to be needed anymore in this package.
-################################################################################
-remMyService() {
-	myServices="$(getAllButOneServices $1 $2)"
-	defServices=""
-	for i in $myServices
-	do
-		if [ ! -z "$defServices" ]
-		then
-			defServices=$i","$defServices
-		else
-			defServices=$i
-		fi
-	done
-	[ -z "$defServices" ] && $SERFBIN tags -delete ${SERFTAG} || $SERFBIN tags -set ${SERFTAG}=$(echo "["$defServices"]" | comprimir)
 }
 
 ################################################################################
@@ -282,10 +298,6 @@ setToMyServices(){
 #
 # This function gets the local list of services and should return the
 # information about the service specified by the type and port parameters.
-#
-# Warning & TODO: Given the way the getMyServices() function returns the local
-# list of services, the current function returns the WHOLE list of services, not
-# just the ONE that has been queried for.
 ################################################################################
 getOneService() {
 	local _Type
@@ -294,8 +306,7 @@ getOneService() {
 	_Type=$1
 	_Port=$2
 
-	# TODO: this needs fixing
-	getMyServices | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
+	getMyServicesList | grep '"s":"'$_Type'"'.*'"p":"'$_Port'"'
 }
 
 ################################################################################
@@ -440,7 +451,7 @@ ipfs_find_(){
 							iservice="$(ipfs_add_nodeid "$node_id" "$i")"
 							if [ ! -z "$defServices" ]
 							then
-								defServices=$iservice","$defServicesa
+								defServices=$iservice","$defServices
 							else
 								defServices=$iservice
 							fi
