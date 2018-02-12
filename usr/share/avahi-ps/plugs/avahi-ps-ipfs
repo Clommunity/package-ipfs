@@ -24,6 +24,25 @@ IPFSLOG="ipfs.log"
 [[ -f $SERF_CONFIGFILE ]] && . $SERF_CONFIGFILE
 DEBUG=false
 
+
+################################################################################
+# getServicesHash(): generate the IPFS hash of the services directory
+#
+# This function adds the services directory (recursively) to IPFS and returns
+# the corresponding hash.
+################################################################################
+getServicesHash(){
+  export IPFS_PATH=$IPFSPATH
+
+	# Add the directory to IPFS and retrieve its hash
+	directoryhash=$($IPFSBINPATH$IPFSBIN add -r -Q $IPFSPATH$SERVICESDIR)
+
+	# If the hash is not null, echo it
+	# TODO: beyond not being null, its length could also be checked
+	[ ! -z "$directoryhash" -a "$directoryhash" != "null"  ] && echo "$directoryhash"
+}
+
+
 ################################################################################
 # getMyServices(): get the local services currently known to IPFS
 #
