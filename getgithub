@@ -3,10 +3,11 @@
 GH_USER=Clommunity
 GH_REPO=package-ipfs
 NAME=ipfs
+BRANCH=master
 
-curl "https://codeload.github.com/${GH_USER}/${GH_REPO}/zip/master" > ${GH_REPO}.zip
+curl "https://codeload.github.com/${GH_USER}/${GH_REPO}/zip/${BRANCH}" > ${GH_REPO}.zip
 unzip ${GH_REPO}.zip
-cd ${GH_REPO}-master/
+cd ${GH_REPO}-${BRANCH}/
 
 make install
 

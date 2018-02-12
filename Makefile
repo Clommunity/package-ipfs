@@ -4,8 +4,8 @@ INSTALLPATH = '/usr/local/bin'
 BINNAME = 'ipfs'
 BZIP2NAME = 'ipfs.bz2'
 
-ifeq ($(ARCH),amd64)
-	ARCH = x86_64
+ifeq ($(ARCH),x86_64)
+	ARCH = amd64
 endif
 
 all:
